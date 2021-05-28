@@ -1,0 +1,25 @@
+services:
+  - docker
+
+env:
+  global:
+    - COMMIT=${TRAVIS_COMMIT::8}
+
+before_install:
+  - export DOCKER_NAME=$(basename `git rev-parse --show-toplevel` | sed 's/docker-//')
+  - echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USERNAME" --password-stdin
+  - docker build -t ${DOCKER_NAME}:${COMMIT} .
+  - export VERSION=$(curl --silent "https://api.github.com/repos/aquasecurity/trivy/releases/latest" | grep '"tag_name":' | sed -E 's/.*"v([^"]+)".*/\1/')
+  - wget https://github.com/aquasecurity/trivy/releases/download/v${VERSION}/trivy_${VERSION}_Linux-64bit.tar.gz
+  - tar zxvf trivy_${VERSION}_Linux-64bit.tar.gz
+script:
+  - ./trivy --quiet image ${DOCKER_NAME}:${COMMIT} | tee vuln-scan-trivy.txt
+  - "if grep -oqP 'HIGH: [1-9][0-9]*| CRITICAL: [1-9][0-9]*' vuln-scan-trivy.txt; then exit 1; done"
+after_success:
+  - docker tag cibiltech/helm "cibiltech/${DOCKER_NAME}:latest"
+  - echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USERNAME" --password-stdin
+  - docker push "cibiltech/${DOCKER_NAME}"
+
+cache:
+  directories:
+    - $HOME/.cache/trivy
